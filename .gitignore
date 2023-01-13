@@ -1,0 +1,7 @@
+node_modules
+start*
+output
+plot.py
+dist/
+dumps/
+coinflip-admin.json
