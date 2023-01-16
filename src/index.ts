@@ -2,11 +2,14 @@ import express from 'express';
 import http from 'http';
 import bodyParser from 'body-parser';
 import cors from 'cors';
+import dotenv from 'dotenv';
+import { Server } from 'socket.io';
 
-// import { subscriber } from './constants/utils';
 import { initRoute } from './routes';
 import { subscribePlay } from './scripts';
-// import { loadRawDump } from './dump';
+import { initSocket } from './socket';
+
+dotenv.config();
 
 const app = express();
 
@@ -17,14 +20,17 @@ app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 
 const server = http.createServer(app);
-// app.get('/dump', (req, res) => {
-//   res.send(loadRawDump('/dumps/output.json'));
-// });
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"]
+  }
+});
 
+initSocket(io);
 initRoute(app);
 
 server.listen(8080, async () => {
-  // subscriber.subscribe("new-game");
   console.log('--@ Start: Listening on http://localhost:8080');
-  subscribePlay();
+  subscribePlay(io);
 });
