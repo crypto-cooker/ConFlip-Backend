@@ -5,3 +5,4 @@ plot.py
 dist/
 dumps/
 coinflip-admin.json
+.env

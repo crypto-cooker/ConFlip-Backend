@@ -1,4 +1,4 @@
-import { Program, translateAddress, web3 } from '@project-serum/anchor';
+import { Program, web3 } from '@project-serum/anchor';
 import * as anchor from '@project-serum/anchor';
 import {
     Keypair,
@@ -9,11 +9,14 @@ import {
     Transaction,
 } from '@solana/web3.js';
 import fs from 'fs';
+import { Server } from "socket.io"
 import NodeWallet from '@project-serum/anchor/dist/cjs/nodewallet';
 
 import { GlobalPool, PlayerPool } from './context/types';
 import { IDL as GameIDL } from "./context/coinflip";
 import { bs58 } from '@project-serum/anchor/dist/cjs/utils/bytes';
+import { FlipType, ResultType, StatusType, TokenType, createRound, updateRoundStatusById } from './api/round';
+import { createAuth, findAuthsByFilter } from './api/wallet';
 
 const PLAYER_POOL_SIZE = 112;
 const LAMPORTS = 1000000000;
@@ -22,8 +25,6 @@ const VAULT_AUTHORITY_SEED = "vault-authority";
 const NONCE = "4QUPibxi";
 
 const PROGRAM_ID = "7ttfENVhNwb21KjZiLHgXLsX2sC1rKoJgnTVL4wb54t1";
-const REWART_VAULT = "AzCoTowEtJM4VZmUapoi56TkoD8GKieKJpg4WFsFMhgJ"
-
 
 // Set the initial program and provider
 let program: Program = null;
@@ -40,8 +41,7 @@ let solConnection = anchor.getProvider().connection;
 // Generate the program client from IDL.
 program = new anchor.Program(GameIDL as anchor.Idl, programId);
 
-
-export const subscribePlay = async () => {
+export const subscribePlay = async (io: Server) => {
     console.log('Admin wallet: ', provider.publicKey.toBase58());
     console.log('ProgramId: ', program.programId.toBase58());
     const [globalAuthority, bump] = await PublicKey.findProgramAddress(
@@ -71,7 +71,7 @@ export const subscribePlay = async () => {
     // await withDraw(payer.publicKey, 0.5);
     // console.log(await getAllTransactions(program.programId));
     // console.log(await getDataFromSignature('2FHN7zfuFPzTByeH9FVnnAc393AtipiuVwQfSXxyKSGvsCq1KjtqZBnw55fN6fPDvrxRr6xW1DHb4XSBpfAEyzpv'));
-    await subscribePlaying();
+    await subscribePlaying(io);
 };
 
 export const setClusterConfig = async (cluster: web3.Cluster, keypair: string, rpc?: string) => {
@@ -92,7 +92,7 @@ export const setClusterConfig = async (cluster: web3.Cluster, keypair: string, r
     // Generate the program client from IDL.
     program = new anchor.Program(GameIDL as anchor.Idl, programId);
     console.log('ProgramId: ', program.programId.toBase58());
-    
+
 }
 
 export const initProject = async (
@@ -110,20 +110,20 @@ export const initProject = async (
 
     tx.add(program.instruction.initialize(
         {
-        accounts: {
-            admin: provider.publicKey,
-            globalAuthority,
-            rewardVault: rewardVault,
-            systemProgram: SystemProgram.programId,
-            rent: SYSVAR_RENT_PUBKEY,
-        },
-        signers: [],
-    }));
-   
+            accounts: {
+                admin: provider.publicKey,
+                globalAuthority,
+                rewardVault: rewardVault,
+                systemProgram: SystemProgram.programId,
+                rent: SYSVAR_RENT_PUBKEY,
+            },
+            signers: [],
+        }));
+
     const txId = await provider.sendAndConfirm(tx, [], {
         commitment: "confirmed",
     });
-    
+
     console.log("txHash =", txId);
 
     return true;
@@ -133,14 +133,14 @@ export const initProject = async (
 export const initializeUserPool = async (
     userAddress: PublicKey,
 ) => {
-   
+
     const tx = await initUserPoolTx(
         userAddress,
     );
     const txId = await provider.sendAndConfirm(tx, [], {
         commitment: "confirmed",
     });
-    
+
     console.log("txHash =", txId);
 }
 
@@ -150,7 +150,7 @@ export const update = async (
     loyatyFee: number,
     newAdmin?: PublicKey,
 ) => {
-   
+
     const tx = await updateTx(
         provider.publicKey,
         loyaltyWallet,
@@ -160,7 +160,7 @@ export const update = async (
     const txId = await provider.sendAndConfirm(tx, [], {
         commitment: "confirmed",
     });
-    
+
     console.log("txHash =", txId);
 }
 
@@ -169,7 +169,7 @@ export const playGame = async (
     setValue: number,
     deposit: number
 ) => {
-    
+
     const tx = await createPlayGameTx(
         userAddress,
         setValue,
@@ -178,7 +178,7 @@ export const playGame = async (
     const txId = await provider.sendAndConfirm(tx, [], {
         commitment: "confirmed",
     });
-    
+
     console.log("txHash =", txId);
     let playerPoolKey = await PublicKey.createWithSeed(
         userAddress,
@@ -203,7 +203,7 @@ export const claim = async (
     const txId = await provider.sendAndConfirm(tx, [], {
         commitment: "confirmed",
     });
-    
+
     console.log("txHash =", txId);
 }
 
@@ -217,7 +217,7 @@ export const withdraw = async (
     const txId = await provider.sendAndConfirm(tx, [], {
         commitment: "confirmed",
     });
-    
+
     console.log("txHash =", txId);
 }
 
@@ -251,15 +251,15 @@ export const initUserPoolTx = async (
 
     tx.add(ix);
     tx.add(program.instruction.initializePlayerPool(
-    {
-        accounts: {
-            owner: userAddress,
-            playerPool: playerPoolKey,
-        },
-        instructions: [],
-        signers: []
-    }));
-    
+        {
+            accounts: {
+                owner: userAddress,
+                playerPool: playerPoolKey,
+            },
+            instructions: [],
+            signers: []
+        }));
+
     return tx;
 }
 
@@ -279,7 +279,7 @@ export const updateTx = async (
 
     tx.add(program.instruction.update(
         newAdmin ?? null,
-        new anchor.BN(loyatyFee*10), {
+        new anchor.BN(loyatyFee * 10), {
         accounts: {
             admin: userAddress,
             globalAuthority,
@@ -288,7 +288,7 @@ export const updateTx = async (
         instructions: [],
         signers: []
     }));
-    
+
     return tx;
 }
 
@@ -364,16 +364,16 @@ export const createClaimTx = async (userAddress: PublicKey, player: PublicKey) =
     console.log("===> Claiming The Reward");
     tx.add(program.instruction.claimReward(
         {
-        accounts: {
-            payer: userAddress,
-            player,
-            playerPool: playerPoolKey,
-            globalAuthority,
-            rewardVault: rewardVault,
-            systemProgram: SystemProgram.programId,
-            instructionSysvarAccount: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY 
-        }
-    }));
+            accounts: {
+                payer: userAddress,
+                player,
+                playerPool: playerPoolKey,
+                globalAuthority,
+                rewardVault: rewardVault,
+                systemProgram: SystemProgram.programId,
+                instructionSysvarAccount: anchor.web3.SYSVAR_INSTRUCTIONS_PUBKEY
+            }
+        }));
 
     return tx;
 }
@@ -443,9 +443,9 @@ export const getUserPoolState = async (
 // Get signautres related with Program Pubkey
 export const getAllTransactions = async (programId: PublicKey) => {
     const data = await solConnection.getSignaturesForAddress(
-      programId,
-      {},
-      "confirmed"
+        programId,
+        {},
+        "confirmed"
     );
     let result = [];
     console.log(`Tracked ${data.length} signature\nStart parsing Txs....`);
@@ -464,100 +464,168 @@ export const getDataFromSignature = async (sig: string) => {
     // Get transaction data from on-chain
     let tx;
     try {
-      tx = await solConnection.getParsedTransaction(sig, "confirmed");
-    } catch (e) {}
-  
+        tx = await solConnection.getParsedTransaction(sig, "confirmed");
+    } catch (e) {
+        console.log(e.message ?? JSON.stringify(e));
+        console.log('Error while parsing round Tx:', sig);
+        return;
+    }
+
     const logs = tx.meta.logMessages;
-    const lose = logs.indexOf('Program log: Reward: 0');
-    
+    const lose = logs.indexOf('Program log: Result: win');
+
     if (!tx) {
-      console.log(`Can't get Transaction for ${sig}`);
-      return;
+        console.log(`Can't get Transaction for ${sig}`);
+        return;
     }
-  
+
     if (tx.meta?.err !== null) {
-      console.log(`Failed Transaction: ${sig}`);
-      return;
+        console.log(`Failed Transaction: ${sig}`);
+        return;
     }
-  
+
     // Parse activty by analyze fetched Transaction data
-    let length = tx.transaction.message.instructions.length;
     let valid = 0;
     let hash = "";
     let ixId = -1;
-    for (let i = 0; i < length; i++) {
-        hash = (
-          tx.transaction.message.instructions[i] as PartiallyDecodedInstruction
-        ).data;
-        if (hash !== undefined && hash.slice(0, 8) === NONCE) {
-            valid = 1;
-        }
-        if (valid === 1) {
-            ixId = i;
-            break;
-        }
+
+    hash = (
+        tx.transaction.message.instructions[0] as PartiallyDecodedInstruction
+    ).data;
+    if (hash !== undefined && hash.slice(0, 8) === NONCE) {
+        valid = 1;
     }
-  
-    if (ixId === -1 || valid === 0) {
-      return;
-    }
-  
-    let ts = tx.slot ?? 0;
-    if (!tx.meta.innerInstructions) {
-      console.log(`Can't parse innerInstructions ${sig}`);
-      return;
+    if (valid === 1) {
+        ixId = 0;
     }
 
-    
-  
+    if (ixId === -1 || valid === 0) {
+        return;
+    }
+
+    let ts = tx.blockTime * 1000 ?? 0;
+    if (!tx.meta.innerInstructions) {
+        console.log(`Can't parse innerInstructions ${sig}`);
+        return;
+    }
+
     let accountKeys = (
-      tx.transaction.message.instructions[ixId] as PartiallyDecodedInstruction
+        tx.transaction.message.instructions[ixId] as PartiallyDecodedInstruction
     ).accounts;
+
     let signer = accountKeys[0].toBase58();
-      
+
     let bytes = bs58.decode(hash);
-    let a = bytes.slice(10, 18).reverse();
+
+    let a = bytes.slice(8, 16).reverse();
     let type = new anchor.BN(a).toNumber();
-    let b = bytes.slice(18, 26).reverse();
+    let b = bytes.slice(16, 24).reverse();
     let sol_price = new anchor.BN(b).toNumber();
 
-    let state = lose < 0 ? 1 : 0;
- 
+    let state = lose >= 0 ? ResultType.WIN : ResultType.LOSE;
+
     let result = {
-        type: type,
+        flip: type as FlipType,
         address: signer,
         bet_amount: sol_price,
-        block_hash: ts,
+        timestamp: new Date(ts),
         win: state,
         signature: sig,
     };
-      
+
     return result;
-  };
+};
+
+export const addRoundData = async (data: {
+    flip: FlipType,
+    address: string,
+    bet_amount: number,
+    timestamp: Date,
+    win: ResultType,
+    signature: string,
+}) => {
+    let wallet = await findAuthsByFilter({ address: data.address });
+    if (!wallet) {
+        const result = await createAuth({ address: data.address });
+        if (!result.err) {
+            wallet = result.body.wallet;
+            console.log('Wallet registered:', data.address);
+        } else {
+            console.log(result.err);
+            console.log('Error while register wallet:', data.address);
+            return;
+        }
+    }
+    // console.log(wallet);
+
+    const round = await createRound({
+        id: 0,
+        wallet_id: wallet.id,
+        flip_type: data.flip,
+        token: TokenType.SOL,
+        amount: data.bet_amount,
+        result: data.win,
+        timestamp: data.timestamp,
+        status: StatusType.INIT,
+        signature: data.signature,
+    })
+
+    if (round.err) {
+        console.log(round.err);
+        console.log('Error while add new round:', data.signature);
+        return;
+    }
+
+    console.log('New round Id:', round.body.round.id);
+    return {
+        ...round.body.round,
+        address: data.address,
+    };
+};
 
 // Hook program Txs to track play instructions
-export const subscribePlaying = async () => {
+export const subscribePlaying = async (io: Server) => {
     await solConnection.onLogs(program.programId, async (logs, ctx) => {
-        if(logs.err) return;
-        if(logs.logs.length < 2 || logs.logs[1].indexOf('Instruction: PlayGame') == -1) return;
-        console.log("tx=", logs.signature);
-        
-        let tx = undefined;
-        try {
-            tx = await solConnection.getParsedTransaction(logs.signature, "confirmed");
-        } catch (e) {}
-        if (!tx) return;
-       
-        let accountKeys = (
-            tx.transaction.message.instructions[0] as PartiallyDecodedInstruction
-        ).accounts;
+        if (logs.err) return;
+        if (logs.logs.length < 2 || logs.logs[1].indexOf('Instruction: PlayGame') == -1) return;
+        // console.log("tx=", logs.signature);
 
-        let signer = accountKeys[0].toBase58();
+        let tx = await getDataFromSignature(logs.signature);
+        if (!tx) return;
+
+        let signer = tx.address;
         console.log('Signer:', signer);
+
+        const roundData = await addRoundData(tx);
+        if (roundData) {
+            io.emit('new-round', roundData);
+        }
 
         try {
             await claim(provider.publicKey, new PublicKey(signer));
-        } catch (e) {}
+
+            if (roundData) {
+                const result = await updateRoundStatusById({ id: roundData.id, status: StatusType.PROCESSED });
+                if (result.err) {
+                    console.log()
+                    console.log('Error while update round processed status');
+                } else {
+                    console.log('New round processed status updated!');
+                }
+            }
+        } catch (e) {
+            console.log(e.message ?? JSON.stringify(e));
+            console.log('Error while claim reward');
+        }
     });
     console.log('Subscribed!!');
+}
+
+export const manualClaim = async (signer: string) => {
+    try {
+        await claim(provider.publicKey, new PublicKey(signer));
+    } catch (e) {
+        console.log(e.message ?? JSON.stringify(e));
+        console.log('Error while claim reward');
+    }
 }
