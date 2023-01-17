@@ -1,5 +1,6 @@
 import { LAMPORTS_PER_SOL } from "@solana/web3.js";
 import { ADMIN_KEY, connection } from "./constants/ids";
+import { format } from 'date-fns';
 
 export async function sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
@@ -15,4 +16,8 @@ export const getBalance = async () => {
         console.log(e);
         return 0;
     };
+}
+
+export function fDateTime(date) {
+    return format(new Date(date), 'yyyy-MM-dd HH:mm');
 }
