@@ -1,4 +1,4 @@
-import { PeriodType, getTopPlayers } from './api/aggregator';
+import { PeriodType, getRoundStatistics, getTopPlayers } from './api/aggregator';
 import { ResultType } from './api/round';
 
 export const initRoute = (app) => {
@@ -28,5 +28,13 @@ export const initRoute = (app) => {
         const losers = await getTopPlayers(ResultType.LOSE, periodType);
 
         res.send({ winners, losers });
+    });
+
+    app.get('/statistics', async (req, res) => {
+        console.log('-- @ Get Round Statistics Request --');
+
+        const result = await getRoundStatistics();
+
+        res.send(result);
     });
 }
