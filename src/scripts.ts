@@ -17,6 +17,7 @@ import { IDL as GameIDL } from "./context/coinflip";
 import { bs58 } from '@project-serum/anchor/dist/cjs/utils/bytes';
 import { FlipType, ResultType, StatusType, TokenType, createRound, updateRoundStatusById } from './api/round';
 import { createAuth, findAuthsByFilter } from './api/wallet';
+import { saveDump } from './dump';
 
 const PLAYER_POOL_SIZE = 112;
 const LAMPORTS = 1000000000;
@@ -588,10 +589,15 @@ export const subscribePlaying = async (io: Server) => {
     await solConnection.onLogs(program.programId, async (logs, ctx) => {
         if (logs.err) return;
         if (logs.logs.length < 2 || logs.logs[1].indexOf('Instruction: PlayGame') == -1) return;
-        // console.log("tx=", logs.signature);
+        console.log("tx=", logs.signature);
 
         let tx = await getDataFromSignature(logs.signature);
-        if (!tx) return;
+        if (!tx) {
+            console.log('Dumping signature due to parsing failure');
+            // dump parsing failed signature to proceed later
+            saveDump('missed_signatured.json', { sig: logs.signature, time: new Date().toUTCString() }, './dumps/');
+            return;
+        }
 
         let signer = tx.address;
         console.log('Signer:', signer);
